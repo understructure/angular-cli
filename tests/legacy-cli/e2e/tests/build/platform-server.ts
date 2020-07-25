@@ -2,23 +2,32 @@ import { normalize } from 'path';
 import { getGlobalVariable } from '../../utils/env';
 import { appendToFile, expectFileToMatch, writeFile } from '../../utils/fs';
 import { exec, ng, silentNpm } from '../../utils/process';
-import { updateJsonFile } from '../../utils/project';
-import { readNgVersion } from '../../utils/version';
+import { isPrereleaseCli, updateJsonFile } from '../../utils/project';
+
+const snapshots = require('../../ng-snapshot/package.json');
 
 export default async function () {
   const argv = getGlobalVariable('argv');
   const veEnabled = argv['ve'];
 
-  await ng('add', '@nguniversal/express-engine@9.0.0-next.6');
+  const tag = await isPrereleaseCli() ?  '@next' : '';
+  await ng('add', `@nguniversal/express-engine${tag}`);
 
-  await updateJsonFile('package.json', packageJson => {
-    const dependencies = packageJson['dependencies'];
-    dependencies['@angular/platform-server'] = getGlobalVariable('argv')['ng-snapshots']
-      ? require('../../ng-snapshot/package.json').dependencies['@angular/platform-server']
-      : readNgVersion();
-  });
+  const isSnapshotBuild = getGlobalVariable('argv')['ng-snapshots'];
+  if (isSnapshotBuild) {
+    await updateJsonFile('package.json', (packageJson) => {
+      const dependencies = packageJson['dependencies'];
+      // Iterate over all of the packages to update them to the snapshot version.
+      for (const [name, version] of Object.entries(snapshots.dependencies)) {
+        if (name in dependencies) {
+          dependencies[name] = version;
+        }
+      }
+    });
 
-  await silentNpm('install');
+    await silentNpm('install');
+  }
+
   if (veEnabled) {
     // todo: https://github.com/angular/angular-cli/issues/15851
     // We need to fix the 'export_ngfactory' transformer as with the
